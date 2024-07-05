@@ -1,9 +1,9 @@
-package ds_adapter
+package netds
 
 import (
 	"fmt"
-	"go-net-datastore/datastore"
-	"go-net-datastore/utils"
+	"github.com/glin-gogogo/go-net-datastore/datastore"
+	"github.com/glin-gogogo/go-net-datastore/utils"
 )
 
 func WithOption(cfg utils.DataStoreConfig, dsOption utils.WithDataStoreOption) []utils.WithOption {
@@ -27,6 +27,7 @@ func New(cfg utils.DataStoreConfig) (datastore.DataStorage, error) {
 	case utils.ServiceNameOBS:
 		opts := WithOption(cfg, &datastore.WithObsOption{})
 		return datastore.NewOBS(opts...)
+
 		//case ServiceNameSUGON:
 		//	return newSugon(region, endpoint, accessKey, secretKey)
 		//case ServiceNameSTARLIGHT:
