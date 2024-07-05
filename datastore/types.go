@@ -9,6 +9,8 @@ const (
 	MetaDigestUpper       = "Digest"
 	MaxFolderDepth        = 10
 	MaxFolderListPageSize = 65536
+
+	MaxInstanceNum = 12
 )
 
 const (

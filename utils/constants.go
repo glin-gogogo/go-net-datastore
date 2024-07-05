@@ -13,7 +13,7 @@ const (
 const (
 	DefaultDataBucket    = "urchin-data"
 	DefaultCacheBucket   = "urchin-cache"
-	DefaultRootDirectory = "datastore/"
+	DefaultRootDirectory = "cads/blocks"
 	MaxBatchWorkers      = 100
 )
 
@@ -21,4 +21,6 @@ const (
 	DefaultListMax      = 1000
 	DefaultDeleteMax    = 1000
 	DefaultBatchWorkers = 100
+	BlocksContentType   = "binary/octet-stream"
+	BlocksContentLength = 262158
 )

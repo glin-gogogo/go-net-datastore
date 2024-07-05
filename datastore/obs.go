@@ -5,13 +5,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/glin-gogogo/go-net-datastore/utils"
 	ds "github.com/ipfs/go-datastore"
 	dsQuery "github.com/ipfs/go-datastore/query"
-	"go-net-datastore/utils"
 	"io"
+	"math/rand"
 	"path"
 	"strings"
-	"sync"
 	"time"
 
 	huaweiobs "github.com/huaweicloud/huaweicloud-sdk-go-obs/obs"
@@ -19,7 +19,7 @@ import (
 
 type Obs struct {
 	utils.DataStoreConfig
-	client *huaweiobs.ObsClient
+	clients []*huaweiobs.ObsClient
 }
 
 type ObsConfig struct {
@@ -101,19 +101,28 @@ func NewOBS(opts ...utils.WithOption) (DataStorage, error) {
 		}
 	}
 
-	client, err := huaweiobs.New(dsConfig.AccessKey, dsConfig.SecretKey, dsConfig.Endpoint)
-	if err != nil {
-		return nil, fmt.Errorf("new obs client failed: %s", err)
+	var clients []*huaweiobs.ObsClient
+	for i := 0; i < MaxInstanceNum; i++ {
+		client, err := huaweiobs.New(dsConfig.AccessKey, dsConfig.SecretKey, dsConfig.Endpoint)
+		if err != nil {
+			return nil, fmt.Errorf("new obs client failed: %s", err)
+		}
+
+		clients = append(clients, client)
 	}
 
 	return &Obs{
 		DataStoreConfig: *dsConfig,
-		client:          client,
+		clients:         clients,
 	}, nil
 }
 
+func (o *Obs) RootDir() string {
+	return o.RootDirectory
+}
+
 func (o *Obs) Put(_ context.Context, k ds.Key, value []byte) error {
-	_, err := o.client.PutObject(&huaweiobs.PutObjectInput{
+	_, err := o.clients[rand.Intn(MaxInstanceNum)].PutObject(&huaweiobs.PutObjectInput{
 		PutObjectBasicInput: huaweiobs.PutObjectBasicInput{
 			ObjectOperationInput: huaweiobs.ObjectOperationInput{
 				Bucket:   o.Bucket,
@@ -132,7 +141,7 @@ func (o *Obs) Sync(ctx context.Context, prefix ds.Key) error {
 }
 
 func (o *Obs) Get(ctx context.Context, k ds.Key) ([]byte, error) {
-	resp, err := o.client.GetObject(&huaweiobs.GetObjectInput{
+	resp, err := o.clients[rand.Intn(MaxInstanceNum)].GetObject(&huaweiobs.GetObjectInput{
 		GetObjectMetadataInput: huaweiobs.GetObjectMetadataInput{
 			Bucket: o.Bucket,
 			Key:    o.dsPath(k.String()),
@@ -163,7 +172,7 @@ func (o *Obs) Has(ctx context.Context, k ds.Key) (bool, error) {
 }
 
 func (o *Obs) GetSize(ctx context.Context, k ds.Key) (int, error) {
-	metadata, err := o.client.GetObjectMetadata(&huaweiobs.GetObjectMetadataInput{
+	metadata, err := o.clients[rand.Intn(MaxInstanceNum)].GetObjectMetadata(&huaweiobs.GetObjectMetadataInput{
 		Bucket: o.Bucket,
 		Key:    o.dsPath(k.String()),
 	})
@@ -179,7 +188,7 @@ func (o *Obs) GetSize(ctx context.Context, k ds.Key) (int, error) {
 }
 
 func (o *Obs) Delete(ctx context.Context, k ds.Key) error {
-	_, err := o.client.DeleteObject(&huaweiobs.DeleteObjectInput{
+	_, err := o.clients[rand.Intn(MaxInstanceNum)].DeleteObject(&huaweiobs.DeleteObjectInput{
 		Bucket: o.Bucket,
 		Key:    o.dsPath(k.String()),
 	})
@@ -201,7 +210,7 @@ func (o *Obs) Query(ctx context.Context, q dsQuery.Query) (dsQuery.Results, erro
 		limit = utils.DefaultListMax
 	}
 
-	resp, err := o.client.ListObjects(&huaweiobs.ListObjectsInput{
+	resp, err := o.clients[rand.Intn(MaxInstanceNum)].ListObjects(&huaweiobs.ListObjectsInput{
 		ListObjsInput: huaweiobs.ListObjsInput{
 			Prefix:  o.dsPath(q.Prefix),
 			MaxKeys: limit,
@@ -221,7 +230,7 @@ func (o *Obs) Query(ctx context.Context, q dsQuery.Query) (dsQuery.Results, erro
 			}
 
 			index -= len(resp.Contents)
-			resp, err = o.client.ListObjects(&huaweiobs.ListObjectsInput{
+			resp, err = o.clients[rand.Intn(MaxInstanceNum)].ListObjects(&huaweiobs.ListObjectsInput{
 				ListObjsInput: huaweiobs.ListObjsInput{
 					Prefix:    o.dsPath(q.Prefix),
 					MaxKeys:   utils.DefaultListMax,
@@ -235,12 +244,16 @@ func (o *Obs) Query(ctx context.Context, q dsQuery.Query) (dsQuery.Results, erro
 			}
 		}
 
+		dsKey, ok := utils.Decode(resp.Contents[index].Key)
+		if !ok {
+			return dsQuery.Result{Error: utils.ErrQueryBadData}, false
+		}
 		entry := dsQuery.Entry{
-			Key:  ds.NewKey(resp.Contents[index].Key).String(),
+			Key:  dsKey.String(),
 			Size: int(resp.Contents[index].Size),
 		}
 		if !q.KeysOnly {
-			value, err := o.Get(ctx, ds.NewKey(entry.Key))
+			value, err := o.Get(ctx, ds.NewKey(resp.Contents[index].Key))
 			if err != nil {
 				return dsQuery.Result{Error: err}, false
 			}
@@ -263,184 +276,12 @@ func (o *Obs) Close() error {
 	return nil
 }
 
-type obsBatch struct {
-	o          *Obs
-	ops        map[string]batchOp
-	numWorkers int
-}
-
-type batchOp struct {
-	val    []byte
-	delete bool
-}
-
 func (o *Obs) Batch(_ context.Context) (ds.Batch, error) {
-	return &obsBatch{
-		o:          o,
-		ops:        make(map[string]batchOp),
-		numWorkers: o.Workers,
-	}, nil
+	return nil, fmt.Errorf("datastore obs: batch is supported on upper class")
 }
 
-func (b *obsBatch) Put(ctx context.Context, k ds.Key, val []byte) error {
-	b.ops[k.String()] = batchOp{
-		val:    val,
-		delete: false,
-	}
-	return nil
-}
-
-func (b *obsBatch) Delete(ctx context.Context, k ds.Key) error {
-	b.ops[k.String()] = batchOp{
-		val:    nil,
-		delete: true,
-	}
-	return nil
-}
-
-func (b *obsBatch) Commit(ctx context.Context) error {
-	var (
-		//deleteObjs []*s3.ObjectIdentifier
-		deleteObjs []huaweiobs.ObjectToDelete
-		putKeys    []ds.Key
-	)
-	for k, op := range b.ops {
-		if op.delete {
-			deleteObjs = append(deleteObjs, huaweiobs.ObjectToDelete{
-				Key: k,
-			})
-		} else {
-			putKeys = append(putKeys, ds.NewKey(k))
-		}
-	}
-
-	numJobs := len(putKeys) + (len(deleteObjs) / utils.DefaultDeleteMax)
-	jobs := make(chan func() error, numJobs)
-	results := make(chan error, numJobs)
-
-	numWorkers := b.numWorkers
-	if numJobs < numWorkers {
-		numWorkers = numJobs
-	}
-
-	var wg sync.WaitGroup
-	wg.Add(numWorkers)
-	defer wg.Wait()
-
-	for w := 0; w < numWorkers; w++ {
-		go func() {
-			defer wg.Done()
-			worker(jobs, results)
-		}()
-	}
-
-	for _, k := range putKeys {
-		jobs <- b.newPutJob(ctx, k, b.ops[k.String()].val)
-	}
-
-	if len(deleteObjs) > 0 {
-		for i := 0; i < len(deleteObjs); i += utils.DefaultDeleteMax {
-			limit := utils.DefaultDeleteMax
-			if len(deleteObjs[i:]) < limit {
-				limit = len(deleteObjs[i:])
-			}
-
-			jobs <- b.newDeleteJob(ctx, deleteObjs[i:i+limit])
-		}
-	}
-	close(jobs)
-
-	var errs []string
-	for i := 0; i < numJobs; i++ {
-		err := <-results
-		if err != nil {
-			errs = append(errs, err.Error())
-		}
-	}
-	if len(errs) > 0 {
-		return fmt.Errorf("s3ds: failed batch operation:\n%s", strings.Join(errs, "\n"))
-	}
-
-	return nil
-}
-
-func (b *obsBatch) newPutJob(ctx context.Context, k ds.Key, value []byte) func() error {
-	return func() error {
-		return b.o.Put(ctx, k, value)
-	}
-}
-
-func (b *obsBatch) newDeleteJob(ctx context.Context, objs []huaweiobs.ObjectToDelete) func() error {
-	return func() error {
-		resp, err := b.o.client.DeleteObjects(&huaweiobs.DeleteObjectsInput{
-			Bucket:  b.o.Bucket,
-			Objects: objs[:],
-		})
-		if err != nil && !ErrNotFound(err) {
-			return err
-		}
-
-		var errs []string
-		for _, err := range resp.Errors {
-			if err.Code != "" && ErrNotFound(errors.New(err.Code)) {
-				continue
-			}
-			errs = append(errs, err.Code)
-		}
-
-		if len(errs) > 0 {
-			return fmt.Errorf("failed to delete objects: %s", errs)
-		}
-
-		return nil
-	}
-}
-
-func worker(jobs <-chan func() error, results chan<- error) {
-	for j := range jobs {
-		results <- j()
-	}
-}
-
-func (o *Obs) GetBucketMetadata(ctx context.Context, bucketName string) (*BucketMetadata, error) {
-	if _, err := o.client.GetBucketMetadata(&huaweiobs.GetBucketMetadataInput{Bucket: bucketName}); err != nil {
-		return nil, err
-	}
-
-	return &BucketMetadata{
-		Name: bucketName,
-	}, nil
-}
-
-func (o *Obs) CreateBucket(ctx context.Context, bucketName string) error {
-	_, err := o.client.CreateBucket(&huaweiobs.CreateBucketInput{Bucket: bucketName})
-	return err
-}
-
-func (o *Obs) DeleteBucket(ctx context.Context, bucketName string) error {
-	_, err := o.client.DeleteBucket(bucketName)
-	return err
-}
-
-func (o *Obs) ListBucketMetadatas(ctx context.Context) ([]*BucketMetadata, error) {
-	resp, err := o.client.ListBuckets(&huaweiobs.ListBucketsInput{})
-	if err != nil {
-		return nil, err
-	}
-
-	var metadatas []*BucketMetadata
-	for _, bucket := range resp.Buckets {
-		metadatas = append(metadatas, &BucketMetadata{
-			Name:     bucket.Name,
-			CreateAt: bucket.CreationDate,
-		})
-	}
-
-	return metadatas, nil
-}
-
-func (o *Obs) GetObjectMetadata(ctx context.Context, bucketName, objectKey string) (*ObjectMetadata, bool, error) {
-	metadata, err := o.client.GetObjectMetadata(&huaweiobs.GetObjectMetadataInput{Bucket: bucketName, Key: objectKey})
+func (o *Obs) GetObjectMetadata(_ context.Context, objectKey string) (*ObjectMetadata, bool, error) {
+	metadata, err := o.clients[rand.Intn(MaxInstanceNum)].GetObjectMetadata(&huaweiobs.GetObjectMetadataInput{Bucket: o.Bucket, Key: objectKey})
 	if err != nil {
 		if strings.Contains(err.Error(), "404") {
 			return nil, false, nil
@@ -449,9 +290,9 @@ func (o *Obs) GetObjectMetadata(ctx context.Context, bucketName, objectKey strin
 		return nil, false, err
 	}
 
-	object, err := o.client.GetObject(&huaweiobs.GetObjectInput{
+	object, err := o.clients[rand.Intn(MaxInstanceNum)].GetObject(&huaweiobs.GetObjectInput{
 		GetObjectMetadataInput: huaweiobs.GetObjectMetadataInput{
-			Bucket: bucketName,
+			Bucket: o.Bucket,
 			Key:    objectKey,
 		},
 	})
@@ -471,10 +312,10 @@ func (o *Obs) GetObjectMetadata(ctx context.Context, bucketName, objectKey strin
 	}, true, nil
 }
 
-func (o *Obs) GetObject(ctx context.Context, bucketName, objectKey string) (io.ReadCloser, error) {
-	resp, err := o.client.GetObject(&huaweiobs.GetObjectInput{
+func (o *Obs) GetObject(_ context.Context, objectKey string) (io.ReadCloser, error) {
+	resp, err := o.clients[rand.Intn(MaxInstanceNum)].GetObject(&huaweiobs.GetObjectInput{
 		GetObjectMetadataInput: huaweiobs.GetObjectMetadataInput{
-			Bucket: bucketName,
+			Bucket: o.Bucket,
 			Key:    objectKey,
 		},
 	})
@@ -485,11 +326,11 @@ func (o *Obs) GetObject(ctx context.Context, bucketName, objectKey string) (io.R
 	return resp.Body, nil
 }
 
-func (o *Obs) PutObject(ctx context.Context, bucketName, objectKey, digest string, reader io.Reader) error {
-	_, err := o.client.PutObject(&huaweiobs.PutObjectInput{
+func (o *Obs) PutObject(_ context.Context, objectKey, digest string, reader io.Reader) error {
+	_, err := o.clients[rand.Intn(MaxInstanceNum)].PutObject(&huaweiobs.PutObjectInput{
 		PutObjectBasicInput: huaweiobs.PutObjectBasicInput{
 			ObjectOperationInput: huaweiobs.ObjectOperationInput{
-				Bucket: bucketName,
+				Bucket: o.Bucket,
 				Key:    objectKey,
 				Metadata: map[string]string{
 					MetaDigest: digest,
@@ -502,26 +343,22 @@ func (o *Obs) PutObject(ctx context.Context, bucketName, objectKey, digest strin
 	return err
 }
 
-//func (o *obs) Batch(_ context.Context) (datastore.Batch, error) {
-//	return nil, nil
-//}
-
-func (o *Obs) PutObjectWithTotalLength(ctx context.Context, bucketName, objectKey, digest string, totalLength int64, reader io.Reader) error {
+func (o *Obs) PutObjectWithTotalLength(_ context.Context, objectKey, digest string, totalLength int64, reader io.Reader) error {
 	return nil
 }
 
-func (o *Obs) DeleteObject(ctx context.Context, bucketName, objectKey string) error {
-	_, err := o.client.DeleteObject(&huaweiobs.DeleteObjectInput{Bucket: bucketName, Key: objectKey})
+func (o *Obs) DeleteObject(_ context.Context, objectKey string) error {
+	_, err := o.clients[rand.Intn(MaxInstanceNum)].DeleteObject(&huaweiobs.DeleteObjectInput{Bucket: o.Bucket, Key: objectKey})
 	return err
 }
 
-func (o *Obs) DelUncompletedDirtyObject(ctx context.Context, bucketName, objectKey string) error {
+func (o *Obs) DelUncompletedDirtyObject(_ context.Context, objectKey string) error {
 	return nil
 }
 
-func (o *Obs) DeleteObjects(ctx context.Context, bucketName string, objects []*ObjectMetadata) error {
+func (o *Obs) DeleteObjects(_ context.Context, objects []*ObjectMetadata) error {
 	input := &huaweiobs.DeleteObjectsInput{}
-	input.Bucket = bucketName
+	input.Bucket = o.Bucket
 
 	var objectsToDel []huaweiobs.ObjectToDelete
 	for _, obj := range objects {
@@ -529,17 +366,33 @@ func (o *Obs) DeleteObjects(ctx context.Context, bucketName string, objects []*O
 	}
 	input.Objects = objectsToDel[:]
 
-	_, err := o.client.DeleteObjects(input)
+	resp, err := o.clients[rand.Intn(MaxInstanceNum)].DeleteObjects(input)
+	if err != nil && !ErrNotFound(err) {
+		return err
+	}
+
+	var errs []string
+	for _, err := range resp.Errors {
+		if err.Code != "" && ErrNotFound(errors.New(err.Code)) {
+			continue
+		}
+		errs = append(errs, err.Code)
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("failed to delete objects: %s", errs)
+	}
+
 	return err
 }
 
-func (o *Obs) ListObjectMetadatas(ctx context.Context, bucketName, prefix, marker string, limit int64) ([]*ObjectMetadata, error) {
-	resp, err := o.client.ListObjects(&huaweiobs.ListObjectsInput{
+func (o *Obs) ListObjectMetadatas(_ context.Context, prefix, marker string, limit int64) ([]*ObjectMetadata, error) {
+	resp, err := o.clients[rand.Intn(MaxInstanceNum)].ListObjects(&huaweiobs.ListObjectsInput{
 		ListObjsInput: huaweiobs.ListObjsInput{
 			Prefix:  prefix,
 			MaxKeys: int(limit),
 		},
-		Bucket: bucketName,
+		Bucket: o.Bucket,
 		Marker: marker,
 	})
 	if err != nil {
@@ -558,16 +411,16 @@ func (o *Obs) ListObjectMetadatas(ctx context.Context, bucketName, prefix, marke
 	return metadatas, nil
 }
 
-func (o *Obs) ListFolderObjects(ctx context.Context, bucketName, prefix string) ([]*ObjectMetadata, error) {
+func (o *Obs) ListFolderObjects(_ context.Context, prefix string) ([]*ObjectMetadata, error) {
 	var metadatas []*ObjectMetadata
 	input := &huaweiobs.ListObjectsInput{}
-	input.Bucket = bucketName
+	input.Bucket = o.Bucket
 	input.ListObjsInput.Prefix = prefix
 	input.Marker = ""
 	input.ListObjsInput.MaxKeys = 100
 
 	for {
-		resp, err := o.client.ListObjects(input)
+		resp, err := o.clients[rand.Intn(MaxInstanceNum)].ListObjects(input)
 		if err != nil {
 			return nil, err
 		}
@@ -587,20 +440,13 @@ func (o *Obs) ListFolderObjects(ctx context.Context, bucketName, prefix string) 
 	}
 }
 
-func (o *Obs) IsObjectExist(ctx context.Context, bucketName, objectKey string) (bool, error) {
-	_, isExist, err := o.GetObjectMetadata(ctx, bucketName, objectKey)
+func (o *Obs) IsObjectExist(ctx context.Context, objectKey string, isFolder bool) (bool, error) {
+	_ = isFolder
+	_, isExist, err := o.GetObjectMetadata(ctx, objectKey)
 	return isExist, err
 }
 
-func (o *Obs) IsBucketExist(ctx context.Context, bucketName string) (bool, error) {
-	if _, err := o.client.HeadBucket(bucketName); err != nil {
-		return false, err
-	}
-
-	return true, nil
-}
-
-func (o *Obs) GetSignURL(ctx context.Context, bucketName, objectKey string, method Method, expire time.Duration) (string, error) {
+func (o *Obs) GetSignURL(_ context.Context, objectKey string, method Method, expire time.Duration) (string, error) {
 	var obsHTTPMethod huaweiobs.HttpMethodType
 	switch method {
 	case MethodGet:
@@ -617,8 +463,8 @@ func (o *Obs) GetSignURL(ctx context.Context, bucketName, objectKey string, meth
 		return "", fmt.Errorf("not support method %s", method)
 	}
 
-	resp, err := o.client.CreateSignedUrl(&huaweiobs.CreateSignedUrlInput{
-		Bucket:  bucketName,
+	resp, err := o.clients[rand.Intn(MaxInstanceNum)].CreateSignedUrl(&huaweiobs.CreateSignedUrlInput{
+		Bucket:  o.Bucket,
 		Key:     objectKey,
 		Method:  obsHTTPMethod,
 		Expires: int(expire.Seconds()),
@@ -630,15 +476,15 @@ func (o *Obs) GetSignURL(ctx context.Context, bucketName, objectKey string, meth
 	return resp.SignedUrl, nil
 }
 
-func (o *Obs) CreateFolder(ctx context.Context, bucketName, folderName string, isEmptyFolder bool) error {
+func (o *Obs) CreateFolder(_ context.Context, folderName string, isEmptyFolder bool) error {
 	if !strings.HasSuffix(folderName, "/") {
 		folderName += "/"
 	}
 
-	_, err := o.client.PutObject(&huaweiobs.PutObjectInput{
+	_, err := o.clients[rand.Intn(MaxInstanceNum)].PutObject(&huaweiobs.PutObjectInput{
 		PutObjectBasicInput: huaweiobs.PutObjectBasicInput{
 			ObjectOperationInput: huaweiobs.ObjectOperationInput{
-				Bucket: bucketName,
+				Bucket: o.Bucket,
 				Key:    folderName,
 			},
 		},
@@ -647,12 +493,12 @@ func (o *Obs) CreateFolder(ctx context.Context, bucketName, folderName string, i
 	return err
 }
 
-func (o *Obs) GetFolderMetadata(ctx context.Context, bucketName, folderKey string) (*ObjectMetadata, bool, error) {
+func (o *Obs) GetFolderMetadata(_ context.Context, folderKey string) (*ObjectMetadata, bool, error) {
 	if !strings.HasSuffix(folderKey, "/") {
 		folderKey += "/"
 	}
 
-	metadata, err := o.client.GetObjectMetadata(&huaweiobs.GetObjectMetadataInput{Bucket: bucketName, Key: folderKey})
+	metadata, err := o.clients[rand.Intn(MaxInstanceNum)].GetObjectMetadata(&huaweiobs.GetObjectMetadataInput{Bucket: o.Bucket, Key: folderKey})
 	if err != nil {
 		if strings.Contains(err.Error(), "404") {
 			//objs, err := o.ListObjectMetadatas(ctx, bucketName, folderKey, "", 1)
@@ -671,9 +517,9 @@ func (o *Obs) GetFolderMetadata(ctx context.Context, bucketName, folderKey strin
 		return nil, false, err
 	}
 
-	object, err := o.client.GetObject(&huaweiobs.GetObjectInput{
+	object, err := o.clients[rand.Intn(MaxInstanceNum)].GetObject(&huaweiobs.GetObjectInput{
 		GetObjectMetadataInput: huaweiobs.GetObjectMetadataInput{
-			Bucket: bucketName,
+			Bucket: o.Bucket,
 			Key:    folderKey,
 		},
 	})
@@ -691,8 +537,4 @@ func (o *Obs) GetFolderMetadata(ctx context.Context, bucketName, folderKey strin
 		ETag:               metadata.ETag,
 		Digest:             metadata.Metadata[MetaDigest],
 	}, true, nil
-}
-
-func (o *Obs) GetCoroutineCount(ctx context.Context) (int32, error) {
-	return -1, nil
 }
