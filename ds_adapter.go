@@ -2,8 +2,8 @@ package ds_adapter
 
 import (
 	"fmt"
-	"go-net-datastore/datastore"
-	"go-net-datastore/utils"
+	"github.com/glin-gogogo/go-net-datastore/datastore"
+	"github.com/glin-gogogo/go-net-datastore/utils"
 )
 
 func WithOption(cfg utils.DataStoreConfig, dsOption utils.WithDataStoreOption) []utils.WithOption {
