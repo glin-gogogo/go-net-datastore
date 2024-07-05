@@ -21,31 +21,25 @@ type dataStorageBlock interface {
 	Close() error
 }
 
-type dataStorageObject interface {
-	GetBucketMetadata(ctx context.Context, bucketName string) (*BucketMetadata, error)
-	CreateBucket(ctx context.Context, bucketName string) error
-	DeleteBucket(ctx context.Context, bucketName string) error
-	ListBucketMetadatas(ctx context.Context) ([]*BucketMetadata, error)
-	IsBucketExist(ctx context.Context, bucketName string) (bool, error)
-	GetObjectMetadata(ctx context.Context, bucketName, objectKey string) (*ObjectMetadata, bool, error)
-	GetObject(ctx context.Context, bucketName, objectKey string) (io.ReadCloser, error)
-	PutObject(ctx context.Context, bucketName, objectKey, digest string, reader io.Reader) error
-	PutObjectWithTotalLength(ctx context.Context, bucketName, objectKey, digest string, totalLength int64, reader io.Reader) error
-	DeleteObject(ctx context.Context, bucketName, objectKey string) error
-	DelUncompletedDirtyObject(ctx context.Context, bucketName, objectKey string) error
-	DeleteObjects(ctx context.Context, bucketName string, objects []*ObjectMetadata) error
-	ListObjectMetadatas(ctx context.Context, bucketName, prefix, marker string, limit int64) ([]*ObjectMetadata, error)
-	IsObjectExist(ctx context.Context, bucketName, objectKey string) (bool, error)
-	GetSignURL(ctx context.Context, bucketName, objectKey string, method Method, expire time.Duration) (string, error)
-	CreateFolder(ctx context.Context, bucketName, folderName string, isEmptyFolder bool) error
-	ListFolderObjects(ctx context.Context, bucketName, prefix string) ([]*ObjectMetadata, error)
-	GetFolderMetadata(ctx context.Context, bucketName, folderKey string) (*ObjectMetadata, bool, error)
-	GetCoroutineCount(ctx context.Context) (int32, error)
+type DataStorageObject interface {
+	GetObjectMetadata(ctx context.Context, objectKey string) (*ObjectMetadata, bool, error)
+	GetObject(ctx context.Context, objectKey string) (io.ReadCloser, error)
+	PutObject(ctx context.Context, objectKey, digest string, reader io.Reader) error
+	PutObjectWithTotalLength(ctx context.Context, objectKey, digest string, totalLength int64, reader io.Reader) error
+	DeleteObject(ctx context.Context, objectKey string) error
+	DelUncompletedDirtyObject(ctx context.Context, objectKey string) error
+	DeleteObjects(ctx context.Context, objects []*ObjectMetadata) error
+	ListObjectMetadatas(ctx context.Context, prefix, marker string, limit int64) ([]*ObjectMetadata, error)
+	IsObjectExist(ctx context.Context, objectKey string, isFolder bool) (bool, error)
+	GetSignURL(ctx context.Context, objectKey string, method Method, expire time.Duration) (string, error)
+	CreateFolder(ctx context.Context, folderName string, isEmptyFolder bool) error
+	ListFolderObjects(ctx context.Context, prefix string) ([]*ObjectMetadata, error)
+	GetFolderMetadata(ctx context.Context, folderKey string) (*ObjectMetadata, bool, error)
 }
 
 type DataStorage interface {
 	dataStorageBlock
-	dataStorageObject
+	DataStorageObject
 
 	Batch(_ context.Context) (datastore.Batch, error)
 }

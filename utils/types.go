@@ -1,5 +1,9 @@
 package utils
 
+const (
+	Extension = ".data"
+)
+
 type DataStoreConfig struct {
 	Name          string
 	Region        string

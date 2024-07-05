@@ -1,4 +1,4 @@
-module go-net-datastore
+module github.com/glin-gogogo/go-net-datastore
 
 go 1.22
 
