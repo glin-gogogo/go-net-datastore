@@ -1,2 +1,2 @@
 # go-net-datastore
-ipfs network datastore
+urchin network datastore
