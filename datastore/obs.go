@@ -121,8 +121,12 @@ func (o *Obs) RootDir() string {
 	return o.RootDirectory
 }
 
+func (o *Obs) client() *huaweiobs.ObsClient {
+	return o.clients[rand.Intn(MaxInstanceNum)]
+}
+
 func (o *Obs) Put(_ context.Context, k ds.Key, value []byte) error {
-	_, err := o.clients[rand.Intn(MaxInstanceNum)].PutObject(&huaweiobs.PutObjectInput{
+	_, err := o.client().PutObject(&huaweiobs.PutObjectInput{
 		PutObjectBasicInput: huaweiobs.PutObjectBasicInput{
 			ObjectOperationInput: huaweiobs.ObjectOperationInput{
 				Bucket:   o.Bucket,
@@ -140,8 +144,8 @@ func (o *Obs) Sync(ctx context.Context, prefix ds.Key) error {
 	return nil
 }
 
-func (o *Obs) Get(ctx context.Context, k ds.Key) ([]byte, error) {
-	resp, err := o.clients[rand.Intn(MaxInstanceNum)].GetObject(&huaweiobs.GetObjectInput{
+func (o *Obs) Get(_ context.Context, k ds.Key) ([]byte, error) {
+	resp, err := o.client().GetObject(&huaweiobs.GetObjectInput{
 		GetObjectMetadataInput: huaweiobs.GetObjectMetadataInput{
 			Bucket: o.Bucket,
 			Key:    o.dsPath(k.String()),
@@ -172,7 +176,7 @@ func (o *Obs) Has(ctx context.Context, k ds.Key) (bool, error) {
 }
 
 func (o *Obs) GetSize(ctx context.Context, k ds.Key) (int, error) {
-	metadata, err := o.clients[rand.Intn(MaxInstanceNum)].GetObjectMetadata(&huaweiobs.GetObjectMetadataInput{
+	metadata, err := o.client().GetObjectMetadata(&huaweiobs.GetObjectMetadataInput{
 		Bucket: o.Bucket,
 		Key:    o.dsPath(k.String()),
 	})
@@ -188,7 +192,7 @@ func (o *Obs) GetSize(ctx context.Context, k ds.Key) (int, error) {
 }
 
 func (o *Obs) Delete(ctx context.Context, k ds.Key) error {
-	_, err := o.clients[rand.Intn(MaxInstanceNum)].DeleteObject(&huaweiobs.DeleteObjectInput{
+	_, err := o.client().DeleteObject(&huaweiobs.DeleteObjectInput{
 		Bucket: o.Bucket,
 		Key:    o.dsPath(k.String()),
 	})
@@ -210,7 +214,7 @@ func (o *Obs) Query(ctx context.Context, q dsQuery.Query) (dsQuery.Results, erro
 		limit = utils.DefaultListMax
 	}
 
-	resp, err := o.clients[rand.Intn(MaxInstanceNum)].ListObjects(&huaweiobs.ListObjectsInput{
+	resp, err := o.client().ListObjects(&huaweiobs.ListObjectsInput{
 		ListObjsInput: huaweiobs.ListObjsInput{
 			Prefix:  o.dsPath(q.Prefix),
 			MaxKeys: limit,
@@ -230,7 +234,7 @@ func (o *Obs) Query(ctx context.Context, q dsQuery.Query) (dsQuery.Results, erro
 			}
 
 			index -= len(resp.Contents)
-			resp, err = o.clients[rand.Intn(MaxInstanceNum)].ListObjects(&huaweiobs.ListObjectsInput{
+			resp, err = o.client().ListObjects(&huaweiobs.ListObjectsInput{
 				ListObjsInput: huaweiobs.ListObjsInput{
 					Prefix:    o.dsPath(q.Prefix),
 					MaxKeys:   utils.DefaultListMax,
@@ -244,7 +248,7 @@ func (o *Obs) Query(ctx context.Context, q dsQuery.Query) (dsQuery.Results, erro
 			}
 		}
 
-		dsKey, ok := utils.Decode(resp.Contents[index].Key)
+		dsKey, ok := utils.Decode(o.RootDirectory, resp.Contents[index].Key)
 		if !ok {
 			return dsQuery.Result{Error: utils.ErrQueryBadData}, false
 		}
@@ -253,11 +257,15 @@ func (o *Obs) Query(ctx context.Context, q dsQuery.Query) (dsQuery.Results, erro
 			Size: int(resp.Contents[index].Size),
 		}
 		if !q.KeysOnly {
-			value, err := o.Get(ctx, ds.NewKey(resp.Contents[index].Key))
+			resp, err := o.GetObject(ctx, resp.Contents[index].Key)
 			if err != nil {
 				return dsQuery.Result{Error: err}, false
 			}
-			entry.Value = value
+
+			entry.Value, err = io.ReadAll(resp)
+			if err != nil {
+				return dsQuery.Result{Error: err}, false
+			}
 		}
 
 		index++
@@ -281,16 +289,16 @@ func (o *Obs) Batch(_ context.Context) (ds.Batch, error) {
 }
 
 func (o *Obs) GetObjectMetadata(_ context.Context, objectKey string) (*ObjectMetadata, bool, error) {
-	metadata, err := o.clients[rand.Intn(MaxInstanceNum)].GetObjectMetadata(&huaweiobs.GetObjectMetadataInput{Bucket: o.Bucket, Key: objectKey})
+	metadata, err := o.client().GetObjectMetadata(&huaweiobs.GetObjectMetadataInput{Bucket: o.Bucket, Key: objectKey})
 	if err != nil {
-		if strings.Contains(err.Error(), "404") {
+		if ErrNotFound(err) {
 			return nil, false, nil
 		}
 
 		return nil, false, err
 	}
 
-	object, err := o.clients[rand.Intn(MaxInstanceNum)].GetObject(&huaweiobs.GetObjectInput{
+	object, err := o.client().GetObject(&huaweiobs.GetObjectInput{
 		GetObjectMetadataInput: huaweiobs.GetObjectMetadataInput{
 			Bucket: o.Bucket,
 			Key:    objectKey,
@@ -313,7 +321,7 @@ func (o *Obs) GetObjectMetadata(_ context.Context, objectKey string) (*ObjectMet
 }
 
 func (o *Obs) GetObject(_ context.Context, objectKey string) (io.ReadCloser, error) {
-	resp, err := o.clients[rand.Intn(MaxInstanceNum)].GetObject(&huaweiobs.GetObjectInput{
+	resp, err := o.client().GetObject(&huaweiobs.GetObjectInput{
 		GetObjectMetadataInput: huaweiobs.GetObjectMetadataInput{
 			Bucket: o.Bucket,
 			Key:    objectKey,
@@ -327,7 +335,7 @@ func (o *Obs) GetObject(_ context.Context, objectKey string) (io.ReadCloser, err
 }
 
 func (o *Obs) PutObject(_ context.Context, objectKey, digest string, reader io.Reader) error {
-	_, err := o.clients[rand.Intn(MaxInstanceNum)].PutObject(&huaweiobs.PutObjectInput{
+	_, err := o.client().PutObject(&huaweiobs.PutObjectInput{
 		PutObjectBasicInput: huaweiobs.PutObjectBasicInput{
 			ObjectOperationInput: huaweiobs.ObjectOperationInput{
 				Bucket: o.Bucket,
@@ -348,7 +356,7 @@ func (o *Obs) PutObjectWithTotalLength(_ context.Context, objectKey, digest stri
 }
 
 func (o *Obs) DeleteObject(_ context.Context, objectKey string) error {
-	_, err := o.clients[rand.Intn(MaxInstanceNum)].DeleteObject(&huaweiobs.DeleteObjectInput{Bucket: o.Bucket, Key: objectKey})
+	_, err := o.client().DeleteObject(&huaweiobs.DeleteObjectInput{Bucket: o.Bucket, Key: objectKey})
 	return err
 }
 
@@ -366,7 +374,7 @@ func (o *Obs) DeleteObjects(_ context.Context, objects []*ObjectMetadata) error 
 	}
 	input.Objects = objectsToDel[:]
 
-	resp, err := o.clients[rand.Intn(MaxInstanceNum)].DeleteObjects(input)
+	resp, err := o.client().DeleteObjects(input)
 	if err != nil && !ErrNotFound(err) {
 		return err
 	}
@@ -387,7 +395,7 @@ func (o *Obs) DeleteObjects(_ context.Context, objects []*ObjectMetadata) error 
 }
 
 func (o *Obs) ListObjectMetadatas(_ context.Context, prefix, marker string, limit int64) ([]*ObjectMetadata, error) {
-	resp, err := o.clients[rand.Intn(MaxInstanceNum)].ListObjects(&huaweiobs.ListObjectsInput{
+	resp, err := o.client().ListObjects(&huaweiobs.ListObjectsInput{
 		ListObjsInput: huaweiobs.ListObjsInput{
 			Prefix:  prefix,
 			MaxKeys: int(limit),
@@ -420,7 +428,7 @@ func (o *Obs) ListFolderObjects(_ context.Context, prefix string) ([]*ObjectMeta
 	input.ListObjsInput.MaxKeys = 100
 
 	for {
-		resp, err := o.clients[rand.Intn(MaxInstanceNum)].ListObjects(input)
+		resp, err := o.client().ListObjects(input)
 		if err != nil {
 			return nil, err
 		}
@@ -441,9 +449,13 @@ func (o *Obs) ListFolderObjects(_ context.Context, prefix string) ([]*ObjectMeta
 }
 
 func (o *Obs) IsObjectExist(ctx context.Context, objectKey string, isFolder bool) (bool, error) {
-	_ = isFolder
-	_, isExist, err := o.GetObjectMetadata(ctx, objectKey)
-	return isExist, err
+	if isFolder {
+		_, isExist, err := o.GetFolderMetadata(ctx, objectKey)
+		return isExist, err
+	} else {
+		_, isExist, err := o.GetObjectMetadata(ctx, objectKey)
+		return isExist, err
+	}
 }
 
 func (o *Obs) GetSignURL(_ context.Context, objectKey string, method Method, expire time.Duration) (string, error) {
@@ -463,7 +475,7 @@ func (o *Obs) GetSignURL(_ context.Context, objectKey string, method Method, exp
 		return "", fmt.Errorf("not support method %s", method)
 	}
 
-	resp, err := o.clients[rand.Intn(MaxInstanceNum)].CreateSignedUrl(&huaweiobs.CreateSignedUrlInput{
+	resp, err := o.client().CreateSignedUrl(&huaweiobs.CreateSignedUrlInput{
 		Bucket:  o.Bucket,
 		Key:     objectKey,
 		Method:  obsHTTPMethod,
@@ -481,7 +493,7 @@ func (o *Obs) CreateFolder(_ context.Context, folderName string, isEmptyFolder b
 		folderName += "/"
 	}
 
-	_, err := o.clients[rand.Intn(MaxInstanceNum)].PutObject(&huaweiobs.PutObjectInput{
+	_, err := o.client().PutObject(&huaweiobs.PutObjectInput{
 		PutObjectBasicInput: huaweiobs.PutObjectBasicInput{
 			ObjectOperationInput: huaweiobs.ObjectOperationInput{
 				Bucket: o.Bucket,
@@ -498,26 +510,16 @@ func (o *Obs) GetFolderMetadata(_ context.Context, folderKey string) (*ObjectMet
 		folderKey += "/"
 	}
 
-	metadata, err := o.clients[rand.Intn(MaxInstanceNum)].GetObjectMetadata(&huaweiobs.GetObjectMetadataInput{Bucket: o.Bucket, Key: folderKey})
+	metadata, err := o.client().GetObjectMetadata(&huaweiobs.GetObjectMetadataInput{Bucket: o.Bucket, Key: folderKey})
 	if err != nil {
-		if strings.Contains(err.Error(), "404") {
-			//objs, err := o.ListObjectMetadatas(ctx, bucketName, folderKey, "", 1)
-			//if err != nil {
-			//	return nil, false, err
-			//} else if len(objs) >= 1 {
-			//	return &ObjectMetadata{
-			//		Key: folderKey,
-			//	}, true, nil
-			//} else {
-			//	return nil, false, nil
-			//}
+		if ErrNotFound(err) {
 			return nil, false, nil
 		}
 
 		return nil, false, err
 	}
 
-	object, err := o.clients[rand.Intn(MaxInstanceNum)].GetObject(&huaweiobs.GetObjectInput{
+	object, err := o.client().GetObject(&huaweiobs.GetObjectInput{
 		GetObjectMetadataInput: huaweiobs.GetObjectMetadataInput{
 			Bucket: o.Bucket,
 			Key:    folderKey,

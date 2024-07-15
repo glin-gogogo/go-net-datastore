@@ -9,6 +9,20 @@ import (
 	"testing"
 )
 
+var (
+	// -obs
+	//Region    = "cn-south-222"
+	//Endpoint  = "obs.cn-south.ccccccooooooommmmmm"
+	//AccessKey = "xxxxxxxxxxxxxxx"
+	//SecretKey = "yyyyyyyyyyyyyyy"
+
+	// -minio
+	Region    = "cn-south"
+	Endpoint  = "192.168.xxx.yyy:9000"
+	AccessKey = "minio_access_key"
+	SecretKey = "minio_secret_key"
+)
+
 // MockBackendDataStore is a mock type for the BackendDataStore
 type MockBackendDataStore struct {
 	mock.Mock
@@ -46,11 +60,11 @@ func TestCreateOrOpen(t *testing.T) {
 	path := "cads/blocks"
 	fun, _ := ParseShardFunc("/repo/netds/shard/v1/next-to-last/2")
 	cfg := utils.DataStoreConfig{
-		Name:          "obs",
-		Region:        "cn-south-222",
-		Endpoint:      "obs.cn-south.ccccccooooooommmmmm",
-		AccessKey:     "xxxxxxxxxxxxxxx",
-		SecretKey:     "yyyyyyyyyyyyyyy",
+		Name:          "minio",
+		Region:        Region,
+		Endpoint:      Endpoint,
+		AccessKey:     AccessKey,
+		SecretKey:     SecretKey,
 		Bucket:        "urchin-data",
 		RootDirectory: "cads/blocks",
 		Workers:       10,
@@ -107,11 +121,11 @@ func TestCommit(t *testing.T) {
 	path := "cads/blocks"
 	fun, _ := ParseShardFunc("/repo/netds/shard/v1/next-to-last/2")
 	cfg := utils.DataStoreConfig{
-		Name:          "obs",
-		Region:        "cn-south-222",
-		Endpoint:      "obs.cn-south.ccccccooooooommmmmm",
-		AccessKey:     "xxxxxxxxxxxxxxx",
-		SecretKey:     "yyyyyyyyyyyyyyy",
+		Name:          "minio",
+		Region:        Region,
+		Endpoint:      Endpoint,
+		AccessKey:     AccessKey,
+		SecretKey:     SecretKey,
 		Bucket:        "urchin-data",
 		RootDirectory: "cads/blocks",
 		//Workers:       10,

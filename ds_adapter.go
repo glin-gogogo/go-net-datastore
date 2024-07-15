@@ -27,13 +27,13 @@ func New(cfg utils.DataStoreConfig) (datastore.DataStorage, error) {
 	case utils.ServiceNameOBS:
 		opts := WithOption(cfg, &datastore.WithObsOption{})
 		return datastore.NewOBS(opts...)
-
+	case utils.ServiceNameMINIO:
+		opts := WithOption(cfg, &datastore.WithMinioOption{})
+		return datastore.NewMinio(opts...)
 		//case ServiceNameSUGON:
 		//	return newSugon(region, endpoint, accessKey, secretKey)
 		//case ServiceNameSTARLIGHT:
 		//	return newStarlight(region, endpoint, accessKey, secretKey)
-		//case ServiceNameMINIO:
-		//	return newMinio(region, endpoint, accessKey, secretKey)
 		//case ServiceNamePARACLOUD:
 		//	return newParaCloud(region, endpoint, accessKey, secretKey)
 	}

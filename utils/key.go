@@ -26,10 +26,21 @@ func KeyIsValid(key datastore.Key) bool {
 	return true
 }
 
-func Decode(file string) (key datastore.Key, ok bool) {
+func Decode(prefix, file string) (key datastore.Key, ok bool) {
 	if !strings.HasSuffix(file, Extension) {
 		return datastore.Key{}, false
 	}
 	name := file[:len(file)-len(Extension)]
-	return datastore.NewKey(name), true
+
+	if !strings.HasSuffix(prefix, "/") {
+		prefix += "/"
+	}
+
+	if strings.HasPrefix(name, prefix) {
+		return datastore.NewKey(name[len(prefix):]), true
+	} else if strings.HasPrefix(name, "/"+prefix) {
+		return datastore.NewKey(name[len("/"+prefix):]), true
+	} else {
+		return datastore.NewKey(name), true
+	}
 }
