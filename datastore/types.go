@@ -7,10 +7,11 @@ type Method string
 const (
 	MetaDigest            = "digest"
 	MetaDigestUpper       = "Digest"
-	MaxFolderDepth        = 10
+	MaxFolderDepth        = 1024
 	MaxFolderListPageSize = 65536
 
-	MaxInstanceNum = 12
+	MaxInstanceNum = 4
+	MinInstanceNum = 1
 )
 
 const (
