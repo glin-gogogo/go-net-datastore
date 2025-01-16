@@ -13,7 +13,6 @@ import (
 	"path"
 	"strings"
 	"sync"
-	"time"
 )
 
 var log = logging.Logger("netds")
@@ -41,30 +40,22 @@ func CreateOrOpen(ctx context.Context, basePath string, fun *ShardIdV1, cfg util
 		return nil, err
 	}
 
-	if !strings.HasSuffix(basePath, "/") {
-		basePath += "/"
-	}
-
 	exist, err := backendDs.IsObjectExist(ctx, basePath, true)
 	if err != nil {
 		return nil, err
 	}
 
 	if !exist {
-		upperPath := path.Dir(basePath)
-		if !strings.HasSuffix(upperPath, "/") {
-			upperPath += "/"
-		}
-
+		upperPath := path.Dir(strings.TrimSuffix(basePath, "/"))
 		exist, _ = backendDs.IsObjectExist(ctx, upperPath, true)
 		if !exist {
-			err := backendDs.CreateFolder(ctx, upperPath, false)
+			err := backendDs.CreateFolder(ctx, upperPath, true)
 			if err != nil {
 				return nil, err
 			}
 		}
 
-		err := backendDs.CreateFolder(ctx, basePath, false)
+		err := backendDs.CreateFolder(ctx, basePath, true)
 		if err != nil {
 			return nil, err
 		}
@@ -131,6 +122,7 @@ func (nds *NetDataStore) Put(ctx context.Context, k ds.Key, value []byte) error 
 	dir, file := nds.encode(k)
 	rootDir := nds.RootDir()
 	metadata, exist, _ := nds.GetObjectMetadata(ctx, path.Join(rootDir, file))
+	//- fixme later
 	if exist && metadata.ContentType == utils.BlocksContentType && metadata.ContentLength == utils.BlocksContentLength {
 		return nil
 	}
@@ -141,7 +133,7 @@ func (nds *NetDataStore) Put(ctx context.Context, k ds.Key, value []byte) error 
 
 	exist, _ = nds.IsObjectExist(ctx, path.Join(rootDir, dir), true)
 	if !exist {
-		if err := nds.CreateFolder(ctx, path.Join(rootDir, dir), false); err != nil {
+		if err := nds.CreateFolder(ctx, path.Join(rootDir, dir), true); err != nil {
 			return err
 		}
 	}
@@ -328,12 +320,8 @@ func (nds *NetDataStore) GetObject(ctx context.Context, objectKey string) (io.Re
 	return nds.ds.GetObject(ctx, objectKey)
 }
 
-func (nds *NetDataStore) PutObject(ctx context.Context, objectKey, digest string, reader io.Reader) error {
-	return nds.ds.PutObject(ctx, objectKey, digest, reader)
-}
-
-func (nds *NetDataStore) PutObjectWithTotalLength(ctx context.Context, objectKey, digest string, totalLength int64, reader io.Reader) error {
-	return nds.ds.PutObjectWithTotalLength(ctx, objectKey, digest, totalLength, reader)
+func (nds *NetDataStore) PutObject(ctx context.Context, objectKey, digest string, totalLength int64, reader io.Reader) error {
+	return nds.ds.PutObject(ctx, objectKey, digest, totalLength, reader)
 }
 
 func (nds *NetDataStore) DeleteObject(ctx context.Context, objectKey string) error {
@@ -348,20 +336,12 @@ func (nds *NetDataStore) DeleteObjects(ctx context.Context, objects []*datastore
 	return nds.ds.DeleteObjects(ctx, objects)
 }
 
-func (nds *NetDataStore) ListObjectMetadatas(ctx context.Context, prefix, marker string, limit int64) ([]*datastore.ObjectMetadata, error) {
-	return nds.ds.ListObjectMetadatas(ctx, prefix, marker, limit)
-}
-
 func (nds *NetDataStore) ListFolderObjects(ctx context.Context, prefix string) ([]*datastore.ObjectMetadata, error) {
 	return nds.ds.ListFolderObjects(ctx, prefix)
 }
 
 func (nds *NetDataStore) IsObjectExist(ctx context.Context, objectKey string, isFolder bool) (bool, error) {
 	return nds.ds.IsObjectExist(ctx, objectKey, isFolder)
-}
-
-func (nds *NetDataStore) GetSignURL(ctx context.Context, objectKey string, method datastore.Method, expire time.Duration) (string, error) {
-	return nds.ds.GetSignURL(ctx, objectKey, method, expire)
 }
 
 func (nds *NetDataStore) CreateFolder(ctx context.Context, folderName string, isEmptyFolder bool) error {

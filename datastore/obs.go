@@ -6,15 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"github.com/glin-gogogo/go-net-datastore/utils"
+	huaweiobs "github.com/huaweicloud/huaweicloud-sdk-go-obs/obs"
 	ds "github.com/ipfs/go-datastore"
 	dsQuery "github.com/ipfs/go-datastore/query"
 	"io"
 	"math/rand"
 	"path"
 	"strings"
-	"time"
-
-	huaweiobs "github.com/huaweicloud/huaweicloud-sdk-go-obs/obs"
 )
 
 type Obs struct {
@@ -229,7 +227,7 @@ func (o *Obs) Query(ctx context.Context, q dsQuery.Query) (dsQuery.Results, erro
 	index := q.Offset
 	nextValue := func() (dsQuery.Result, bool) {
 		for index >= len(resp.Contents) {
-			if !resp.IsTruncated {
+			if !resp.IsTruncated || resp.NextMarker == "" {
 				return dsQuery.Result{}, false
 			}
 
@@ -241,7 +239,7 @@ func (o *Obs) Query(ctx context.Context, q dsQuery.Query) (dsQuery.Results, erro
 					Delimiter: "/",
 				},
 				Bucket: o.Bucket,
-				Marker: "",
+				Marker: resp.NextMarker,
 			})
 			if err != nil {
 				return dsQuery.Result{Error: err}, false
@@ -252,6 +250,7 @@ func (o *Obs) Query(ctx context.Context, q dsQuery.Query) (dsQuery.Results, erro
 		if !ok {
 			return dsQuery.Result{Error: utils.ErrQueryBadData}, false
 		}
+
 		entry := dsQuery.Entry{
 			Key:  dsKey.String(),
 			Size: int(resp.Contents[index].Size),
@@ -334,7 +333,7 @@ func (o *Obs) GetObject(_ context.Context, objectKey string) (io.ReadCloser, err
 	return resp.Body, nil
 }
 
-func (o *Obs) PutObject(_ context.Context, objectKey, digest string, reader io.Reader) error {
+func (o *Obs) PutObject(_ context.Context, objectKey, digest string, totalLength int64, reader io.Reader) error {
 	_, err := o.client().PutObject(&huaweiobs.PutObjectInput{
 		PutObjectBasicInput: huaweiobs.PutObjectBasicInput{
 			ObjectOperationInput: huaweiobs.ObjectOperationInput{
@@ -349,10 +348,6 @@ func (o *Obs) PutObject(_ context.Context, objectKey, digest string, reader io.R
 	})
 
 	return err
-}
-
-func (o *Obs) PutObjectWithTotalLength(_ context.Context, objectKey, digest string, totalLength int64, reader io.Reader) error {
-	return nil
 }
 
 func (o *Obs) DeleteObject(_ context.Context, objectKey string) error {
@@ -394,31 +389,6 @@ func (o *Obs) DeleteObjects(_ context.Context, objects []*ObjectMetadata) error 
 	return err
 }
 
-func (o *Obs) ListObjectMetadatas(_ context.Context, prefix, marker string, limit int64) ([]*ObjectMetadata, error) {
-	resp, err := o.client().ListObjects(&huaweiobs.ListObjectsInput{
-		ListObjsInput: huaweiobs.ListObjsInput{
-			Prefix:  prefix,
-			MaxKeys: int(limit),
-		},
-		Bucket: o.Bucket,
-		Marker: marker,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	var metadatas []*ObjectMetadata
-	for _, object := range resp.Contents {
-		metadatas = append(metadatas, &ObjectMetadata{
-			Key:           object.Key,
-			ETag:          object.ETag,
-			ContentLength: object.Size,
-		})
-	}
-
-	return metadatas, nil
-}
-
 func (o *Obs) ListFolderObjects(_ context.Context, prefix string) ([]*ObjectMetadata, error) {
 	var metadatas []*ObjectMetadata
 	input := &huaweiobs.ListObjectsInput{}
@@ -456,36 +426,6 @@ func (o *Obs) IsObjectExist(ctx context.Context, objectKey string, isFolder bool
 		_, isExist, err := o.GetObjectMetadata(ctx, objectKey)
 		return isExist, err
 	}
-}
-
-func (o *Obs) GetSignURL(_ context.Context, objectKey string, method Method, expire time.Duration) (string, error) {
-	var obsHTTPMethod huaweiobs.HttpMethodType
-	switch method {
-	case MethodGet:
-		obsHTTPMethod = huaweiobs.HttpMethodGet
-	case MethodPut:
-		obsHTTPMethod = huaweiobs.HttpMethodPut
-	case MethodHead:
-		obsHTTPMethod = huaweiobs.HTTP_HEAD
-	case MethodPost:
-		obsHTTPMethod = huaweiobs.HttpMethodPost
-	case MethodDelete:
-		obsHTTPMethod = huaweiobs.HTTP_DELETE
-	default:
-		return "", fmt.Errorf("not support method %s", method)
-	}
-
-	resp, err := o.client().CreateSignedUrl(&huaweiobs.CreateSignedUrlInput{
-		Bucket:  o.Bucket,
-		Key:     objectKey,
-		Method:  obsHTTPMethod,
-		Expires: int(expire.Seconds()),
-	})
-	if err != nil {
-		return "", err
-	}
-
-	return resp.SignedUrl, nil
 }
 
 func (o *Obs) CreateFolder(_ context.Context, folderName string, isEmptyFolder bool) error {
