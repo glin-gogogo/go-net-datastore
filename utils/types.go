@@ -4,6 +4,9 @@ const (
 	Extension = ".data"
 )
 
+var RedisClusterIP = []string{"192.168.242.28:6379"}
+var RedisClusterPwd = "dragonfly"
+
 type DataStoreConfig struct {
 	Name          string
 	Region        string

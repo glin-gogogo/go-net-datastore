@@ -6,18 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"github.com/glin-gogogo/go-net-datastore/utils"
+	"github.com/go-http-utils/headers"
 	ds "github.com/ipfs/go-datastore"
 	dsQuery "github.com/ipfs/go-datastore/query"
+	MinIO "github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"io"
 	"math/rand"
-	"net/url"
 	"path"
 	"strings"
-	"time"
-
-	"github.com/go-http-utils/headers"
-	MinIO "github.com/minio/minio-go/v7"
 )
 
 type Minio struct {
@@ -142,7 +139,7 @@ func (m *Minio) Put(ctx context.Context, k ds.Key, value []byte) error {
 	return err
 }
 
-func (m *Minio) Sync(ctx context.Context, prefix ds.Key) error {
+func (m *Minio) Sync(_ context.Context, _ ds.Key) error {
 	return nil
 }
 
@@ -242,9 +239,9 @@ func (m *Minio) Query(ctx context.Context, q dsQuery.Query) (dsQuery.Results, er
 					if err != nil {
 						return dsQuery.Result{Error: err}, false
 					}
-					defer resp.Close()
 
 					entry.Value, err = io.ReadAll(resp)
+					resp.Close()
 					if err != nil {
 						return dsQuery.Result{Error: err}, false
 					}
@@ -305,13 +302,9 @@ func (m *Minio) GetObject(ctx context.Context, objectKey string) (io.ReadCloser,
 	return resp, nil
 }
 
-func (m *Minio) PutObject(ctx context.Context, objectKey, digest string, reader io.Reader) error {
+func (m *Minio) PutObject(ctx context.Context, objectKey, digest string, totalLength int64, reader io.Reader) error {
 	_, err := m.client().PutObject(ctx, m.Bucket, objectKey, reader, -1, MinIO.PutObjectOptions{})
 	return err
-}
-
-func (m *Minio) PutObjectWithTotalLength(_ context.Context, objectKey, digest string, totalLength int64, reader io.Reader) error {
-	return nil
 }
 
 func (m *Minio) DeleteObject(ctx context.Context, objectKey string) error {
@@ -338,29 +331,6 @@ func (m *Minio) DeleteObjects(ctx context.Context, objects []*ObjectMetadata) er
 	}
 
 	return nil
-}
-
-func (m *Minio) ListObjectMetadatas(ctx context.Context, prefix, marker string, limit int64) ([]*ObjectMetadata, error) {
-	objectCh := m.client().ListObjects(ctx, m.Bucket, MinIO.ListObjectsOptions{
-		Prefix:       prefix,
-		MaxKeys:      int(limit),
-		WithMetadata: true,
-		Recursive:    true,
-	})
-
-	var metadatas []*ObjectMetadata
-	for object := range objectCh {
-		if object.Err != nil {
-			return nil, object.Err
-		}
-
-		metadatas = append(metadatas, &ObjectMetadata{
-			Key:  object.Key,
-			ETag: object.ETag,
-		})
-	}
-
-	return metadatas, nil
 }
 
 func (m *Minio) ListFolderObjects(ctx context.Context, prefix string) ([]*ObjectMetadata, error) {
@@ -397,28 +367,7 @@ func (m *Minio) IsObjectExist(ctx context.Context, objectKey string, isFolder bo
 	}
 }
 
-func (m *Minio) GetSignURL(ctx context.Context, objectKey string, method Method, expire time.Duration) (string, error) {
-	var req *url.URL
-	reqParams := make(url.Values)
-	switch method {
-	case MethodGet:
-		req, _ = m.client().PresignedGetObject(ctx, m.Bucket, objectKey, expire, reqParams)
-	case MethodPut:
-		req, _ = m.client().PresignedPutObject(ctx, m.Bucket, objectKey, expire)
-	case MethodHead:
-		req, _ = m.client().PresignedHeadObject(ctx, m.Bucket, objectKey, expire, reqParams)
-	default:
-		return "", fmt.Errorf("not support method %s", method)
-	}
-
-	return req.String(), nil
-}
-
 func (m *Minio) CreateFolder(ctx context.Context, folderName string, isEmptyFolder bool) error {
-	//if !isEmptyFolder {
-	//	return nil
-	//}
-
 	if !strings.HasSuffix(folderName, "/") {
 		folderName += "/"
 	}
@@ -435,6 +384,10 @@ func (m *Minio) CreateFolder(ctx context.Context, folderName string, isEmptyFold
 }
 
 func (m *Minio) GetFolderMetadata(ctx context.Context, folderKey string) (*ObjectMetadata, bool, error) {
+	if !strings.HasSuffix(folderKey, "/") {
+		folderKey += "/"
+	}
+
 	meta, isExist, err := m.GetObjectMetadata(ctx, folderKey)
 	if err != nil || isExist {
 		return meta, isExist, err
