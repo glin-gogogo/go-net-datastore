@@ -101,8 +101,8 @@ github.com/stretchr/testify v1.9.0 h1:HtqpIVDClZ4nwg75+f6Lvsy/wHu+3BoSGCbBAcpTsT
 github.com/stretchr/testify v1.9.0/go.mod h1:r2ic/lqez/lEtzL7wO/rwa5dbSLXVDPFyf8C91i36aY=
 github.com/studio-b12/gowebdav v0.9.0 h1:1j1sc9gQnNxbXXM4M/CebPOX4aXYtr7MojAVcN4dHjU=
 github.com/studio-b12/gowebdav v0.9.0/go.mod h1:bHA7t77X/QFExdeAnDzK6vKM34kEZAcE1OX4MfiwjkE=
-github.com/urchinfs/paracloud-sdk v0.1.3 h1:sSY8P5JlgsBH6CWZuVf+MPrXEdMxh6P4dB6Kn1m6gL0=
-github.com/urchinfs/paracloud-sdk v0.1.3/go.mod h1:QUOoSQxb7gycJlrDsAba/VJZvqDF6wu4tecQS2P2Q4g=
+github.com/urchinfs/paracloud-sdk v0.1.4 h1:Kbf+R2lKuM0DvzzZSgV9LmChi9yxiScdGTUcsl3U2NU=
+github.com/urchinfs/paracloud-sdk v0.1.4/go.mod h1:QUOoSQxb7gycJlrDsAba/VJZvqDF6wu4tecQS2P2Q4g=
 github.com/urchinfs/sugon-sdk v1.0.21 h1:nE0DuI+sX5rjx2rAsZsXs+K8ts4FB0VONnJwERFlsKQ=
 github.com/urchinfs/sugon-sdk v1.0.21/go.mod h1:tdq6GYcRn/XlXTNj5sPXCt9DLcD5IEqd1tEUM96G8fw=
 github.com/yuin/goldmark v1.1.27/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=

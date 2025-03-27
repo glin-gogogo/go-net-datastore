@@ -9,7 +9,7 @@ require (
 	github.com/ipfs/go-log v1.0.5
 	github.com/minio/minio-go/v7 v7.0.73
 	github.com/stretchr/testify v1.9.0
-	github.com/urchinfs/paracloud-sdk v0.1.3
+	github.com/urchinfs/paracloud-sdk v0.1.4
 	github.com/urchinfs/sugon-sdk v1.0.21
 )
 

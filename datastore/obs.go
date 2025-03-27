@@ -10,7 +10,6 @@ import (
 	ds "github.com/ipfs/go-datastore"
 	dsQuery "github.com/ipfs/go-datastore/query"
 	"io"
-	"math/rand"
 	"path"
 	"strings"
 )
@@ -101,7 +100,11 @@ func NewOBS(opts ...utils.WithOption) (DataStorage, error) {
 
 	var clients []*huaweiobs.ObsClient
 	for i := 0; i < MaxInstanceNum; i++ {
-		client, err := huaweiobs.New(dsConfig.AccessKey, dsConfig.SecretKey, dsConfig.Endpoint)
+		client, err := huaweiobs.New(dsConfig.AccessKey, dsConfig.SecretKey, dsConfig.Endpoint,
+			huaweiobs.WithConnectTimeout(30),
+			huaweiobs.WithSocketTimeout(120),
+			huaweiobs.WithMaxRetryCount(5),
+			huaweiobs.WithMaxConnections(32))
 		if err != nil {
 			return nil, fmt.Errorf("new obs client failed: %s", err)
 		}
@@ -120,7 +123,8 @@ func (o *Obs) RootDir() string {
 }
 
 func (o *Obs) client() *huaweiobs.ObsClient {
-	return o.clients[rand.Intn(MaxInstanceNum)]
+	return o.clients[0]
+	//return o.clients[rand.Intn(MaxInstanceNum)]
 }
 
 func (o *Obs) Put(_ context.Context, k ds.Key, value []byte) error {

@@ -10,7 +10,7 @@ const (
 	MaxFolderDepth        = 1024
 	MaxFolderListPageSize = 65536
 
-	MaxInstanceNum = 4
+	MaxInstanceNum = 1
 	MinInstanceNum = 1
 )
 
