@@ -115,43 +115,76 @@ func (nds *NetDataStore) decode(file string) (key ds.Key, ok bool) {
 }
 
 func (nds *NetDataStore) Put(ctx context.Context, k ds.Key, value []byte) error {
+	log.Debugf("nds put key, key:%s", k.String())
 	if !utils.KeyIsValid(k) {
 		return fmt.Errorf("when putting '%q': %v", k, ErrInvalidKey)
 	}
 
-	dir, file := nds.encode(k)
-	rootDir := nds.RootDir()
-	metadata, exist, _ := nds.GetObjectMetadata(ctx, path.Join(rootDir, file))
+	_, file := nds.encode(k)
+	//rootDir := nds.RootDir()
+	//metadata, exist, _ := nds.GetObjectMetadata(ctx, path.Join(rootDir, file))
 	//- fixme later
 	//if exist && metadata.ContentType == utils.BlocksContentType && metadata.ContentLength == utils.BlocksContentLength {
-	if exist && metadata.ContentLength == utils.BlocksContentLength {
-		return nil
-	}
+	//if exist && metadata.ContentLength == utils.BlocksContentLength {
+	//	return nil
+	//}
+	//
+	//if !strings.HasSuffix(dir, "/") {
+	//	dir += "/"
+	//}
+	//
+	//exist, _ = nds.IsObjectExist(ctx, path.Join(rootDir, dir), true)
+	//if !exist {
+	//	if err := nds.CreateFolder(ctx, path.Join(rootDir, dir), true); err != nil {
+	//		return err
+	//	}
+	//}
 
-	if !strings.HasSuffix(dir, "/") {
-		dir += "/"
-	}
-
-	exist, _ = nds.IsObjectExist(ctx, path.Join(rootDir, dir), true)
-	if !exist {
-		if err := nds.CreateFolder(ctx, path.Join(rootDir, dir), true); err != nil {
-			return err
+	_, _, err := utils.RetryRun(ctx, 0.5, 2, 5, func() (any, bool, error) {
+		err := nds.ds.Put(ctx, ds.NewKey(file), value)
+		if err == nil {
+			return nil, true, nil
+		} else if utils.NeedRetry(err) {
+			return nil, false, err
+		} else {
+			return nil, true, err
 		}
+	})
+	if err != nil {
+		log.Errorf("nds put key:%s error, err:%s", k.String(), err.Error())
+		return err
 	}
 
-	return nds.ds.Put(ctx, ds.NewKey(file), value)
+	return nil
 }
 
 func (nds *NetDataStore) Get(ctx context.Context, k ds.Key) ([]byte, error) {
+	log.Debugf("nds get key, key:%s", k.String())
 	if !utils.KeyIsValid(k) {
 		return nil, ds.ErrNotFound
 	}
 
 	_, file := nds.encode(k)
-	return nds.ds.Get(ctx, ds.NewKey(file))
+	anyRes, _, err := utils.RetryRun(ctx, 0.5, 2, 5, func() (any, bool, error) {
+		val, err := nds.ds.Get(ctx, ds.NewKey(file))
+		if err == nil {
+			return val, true, nil
+		} else if utils.NeedRetry(err) {
+			return nil, false, err
+		} else {
+			return nil, true, err
+		}
+	})
+	if err != nil {
+		log.Errorf("nds get key:%s error, err:%s", k.String(), err.Error())
+		return nil, err
+	}
+
+	return anyRes.([]byte), nil
 }
 
 func (nds *NetDataStore) Has(ctx context.Context, k ds.Key) (bool, error) {
+	log.Debugf("nds has key, key:%s", k.String())
 	if !utils.KeyIsValid(k) {
 		return false, nil
 	}
@@ -179,6 +212,7 @@ func (nds *NetDataStore) Delete(ctx context.Context, k ds.Key) error {
 }
 
 func (nds *NetDataStore) Query(ctx context.Context, q dsQuery.Query) (dsQuery.Results, error) {
+	log.Debugf("nds query key, query:%s", q.String())
 	return nds.ds.Query(ctx, q)
 }
 
@@ -314,14 +348,17 @@ func worker(jobs <-chan func() error, results chan<- error) {
 }
 
 func (nds *NetDataStore) GetObjectMetadata(ctx context.Context, objectKey string) (*datastore.ObjectMetadata, bool, error) {
+	log.Debugf("GetObjectMetadata, key:%s", objectKey)
 	return nds.ds.GetObjectMetadata(ctx, objectKey)
 }
 
 func (nds *NetDataStore) GetObject(ctx context.Context, objectKey string) (io.ReadCloser, error) {
+	log.Debugf("GetObject, key:%s", objectKey)
 	return nds.ds.GetObject(ctx, objectKey)
 }
 
 func (nds *NetDataStore) PutObject(ctx context.Context, objectKey, digest string, totalLength int64, reader io.Reader) error {
+	log.Debugf("PutObject, key:%s", objectKey)
 	return nds.ds.PutObject(ctx, objectKey, digest, totalLength, reader)
 }
 
