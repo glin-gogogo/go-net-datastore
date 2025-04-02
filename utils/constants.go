@@ -14,7 +14,7 @@ const (
 	DefaultDataBucket    = "urchin-data"
 	DefaultCacheBucket   = "urchin-cache"
 	DefaultRootDirectory = "cads/blocks"
-	MaxBatchWorkers      = 100
+	MaxBatchWorkers      = 256
 )
 
 const (
