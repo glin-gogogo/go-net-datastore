@@ -44,7 +44,8 @@ func NeedRetry(err error) bool {
 		strings.Contains(errMsg, "connection failed") ||
 		strings.Contains(errMsg, "timeout") ||
 		strings.Contains(errMsg, "server misbehaving") ||
-		strings.Contains(errMsg, "no such host")
+		strings.Contains(errMsg, "no such host") ||
+		strings.Contains(errMsg, "eof")
 }
 
 func RetryRun(ctx context.Context,
