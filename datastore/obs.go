@@ -12,11 +12,13 @@ import (
 	"io"
 	"path"
 	"strings"
+	"sync"
 )
 
 type Obs struct {
 	utils.DataStoreConfig
-	clients []*huaweiobs.ObsClient
+	clients  []*huaweiobs.ObsClient
+	uploader *Uploader
 }
 
 type ObsConfig struct {
@@ -86,6 +88,67 @@ func (o *WithObsOption) WithWorkers(workers int) utils.WithOption {
 	}
 }
 
+type UploadTask struct {
+	Bucket string
+	Key    string
+	Data   []byte
+}
+
+type Uploader struct {
+	client      *huaweiobs.ObsClient
+	taskChan    chan UploadTask
+	wg          sync.WaitGroup
+	workerCount int
+}
+
+func NewUploader(client *huaweiobs.ObsClient, workerCount int, bufferSize int) *Uploader {
+	return &Uploader{
+		client:      client,
+		taskChan:    make(chan UploadTask, bufferSize),
+		workerCount: workerCount,
+	}
+}
+
+func (u *Uploader) Start() {
+	for i := 0; i < u.workerCount; i++ {
+		u.wg.Add(1)
+		go u.worker(i)
+	}
+}
+
+func (u *Uploader) worker(id int) {
+	defer u.wg.Done()
+	for task := range u.taskChan {
+		err, _ := u.client.PutObject(&huaweiobs.PutObjectInput{
+			PutObjectBasicInput: huaweiobs.PutObjectBasicInput{
+				ObjectOperationInput: huaweiobs.ObjectOperationInput{
+					Bucket:   task.Bucket,
+					Key:      task.Key,
+					Metadata: nil,
+				},
+			},
+			Body: bytes.NewReader(task.Data),
+		})
+		if err != nil {
+			fmt.Printf("Worker %d: Failed to upload %s: %v\n", id, task.Key, err)
+			continue
+		}
+	}
+}
+
+func (u *Uploader) PutObject(bucket, key string, data []byte) {
+	u.taskChan <- UploadTask{
+		Bucket: bucket,
+		Key:    key,
+		Data:   data,
+	}
+}
+
+func (u *Uploader) Close() {
+	close(u.taskChan)
+	u.wg.Wait()
+}
+
 func (o *Obs) dsPath(p string) string {
 	return path.Join(o.RootDirectory, p)
 }
@@ -112,9 +175,13 @@ func NewOBS(opts ...utils.WithOption) (DataStorage, error) {
 		clients = append(clients, client)
 	}
 
+	u := NewUploader(clients[0], 32, 1000)
+	u.Start()
+
 	return &Obs{
 		DataStoreConfig: *dsConfig,
 		clients:         clients,
+		uploader:        u,
 	}, nil
 }
 
@@ -128,18 +195,20 @@ func (o *Obs) client() *huaweiobs.ObsClient {
 }
 
 func (o *Obs) Put(_ context.Context, k ds.Key, value []byte) error {
-	_, err := o.client().PutObject(&huaweiobs.PutObjectInput{
-		PutObjectBasicInput: huaweiobs.PutObjectBasicInput{
-			ObjectOperationInput: huaweiobs.ObjectOperationInput{
-				Bucket:   o.Bucket,
-				Key:      o.dsPath(k.String()),
-				Metadata: nil,
-			},
-		},
-		Body: bytes.NewReader(value),
-	})
-
-	return err
+	o.uploader.PutObject(o.Bucket, o.dsPath(k.String()), value)
+	return nil
+	//_, err := o.client().PutObject(&huaweiobs.PutObjectInput{
+	//	PutObjectBasicInput: huaweiobs.PutObjectBasicInput{
+	//		ObjectOperationInput: huaweiobs.ObjectOperationInput{
+	//			Bucket:   o.Bucket,
+	//			Key:      o.dsPath(k.String()),
+	//			Metadata: nil,
+	//		},
+	//	},
+	//	Body: bytes.NewReader(value),
+	//})
+	//
+	//return err
 }
 
 func (o *Obs) Sync(ctx context.Context, prefix ds.Key) error {
